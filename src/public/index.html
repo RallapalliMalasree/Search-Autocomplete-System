@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Search Autocomplete</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; background: #f1f3f4; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding-top: 80px; }
+
+    .logo { font-size: 2.5rem; font-weight: bold; margin-bottom: 24px; }
+    .logo span:first-child { color: #4285F4; }
+    .logo span:nth-child(2) { color: #EA4335; }
+    .logo span:nth-child(3) { color: #FBBC05; }
+    .logo span:nth-child(4) { color: #4285F4; }
+    .logo span:nth-child(5) { color: #34A853; }
+    .logo span:nth-child(6) { color: #EA4335; }
+
+    .search-wrapper { width: 100%; max-width: 580px; position: relative; }
+
+    .search-box {
+      display: flex; align-items: center;
+      background: white; border-radius: 24px;
+      border: 1px solid #dfe1e5; padding: 12px 20px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      transition: box-shadow 0.2s;
+    }
+    .search-box:focus-within { box-shadow: 0 4px 12px rgba(0,0,0,0.15); border-color: transparent; }
+
+    #search-input {
+      flex: 1; border: none; outline: none;
+      font-size: 1rem; background: transparent; color: #202124;
+    }
+
+    .search-icon { color: #9aa0a6; margin-right: 12px; font-size: 1.1rem; }
+    .clear-btn { background: none; border: none; cursor: pointer; color: #9aa0a6; font-size: 1rem; display: none; }
+
+    /* Dropdown suggestions */
+    #suggestions {
+      position: absolute; top: 52px; left: 0; right: 0;
+      background: white; border-radius: 0 0 24px 24px;
+      border: 1px solid #dfe1e5; border-top: none;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      display: none; z-index: 100;
+      overflow: hidden;
+    }
+
+    .suggestion-item {
+      display: flex; align-items: center;
+      padding: 10px 20px; cursor: pointer;
+      font-size: 0.95rem; color: #202124;
+      gap: 12px;
+    }
+    .suggestion-item:hover { background: #f8f9fa; }
+    .suggestion-item .icon { color: #9aa0a6; font-size: 0.9rem; }
+    .suggestion-item .term { flex: 1; }
+    .suggestion-item .match { font-weight: bold; }
+
+    .source-badge {
+      font-size: 0.7rem; padding: 2px 8px; border-radius: 10px;
+      font-weight: bold;
+    }
+    .source-trie  { background: #e8f5e9; color: #2e7d32; }
+    .source-cache { background: #e3f2fd; color: #1565c0; }
+    .source-db    { background: #fff3e0; color: #e65100; }
+
+    /* Trending */
+    #trending-section { margin-top: 32px; width: 100%; max-width: 580px; }
+    #trending-section h3 { color: #5f6368; font-size: 0.85rem; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .trending-tags { display: flex; flex-wrap: wrap; gap: 8px; }
+    .tag {
+      background: white; border: 1px solid #dfe1e5;
+      padding: 6px 14px; border-radius: 16px;
+      font-size: 0.85rem; cursor: pointer; color: #202124;
+      transition: background 0.2s;
+    }
+    .tag:hover { background: #f1f3f4; }
+
+    #status { margin-top: 16px; font-size: 0.8rem; color: #9aa0a6; }
+  </style>
+</head>
+<body>
+
+<div class="logo">
+  <span>A</span><span>u</span><span>t</span><span>o</span><span>c</span><span>o</span><span style="color:#EA4335">m</span><span style="color:#FBBC05">p</span><span style="color:#4285F4">l</span><span style="color:#34A853">e</span><span style="color:#EA4335">t</span><span style="color:#4285F4">e</span>
+</div>
+
+<div class="search-wrapper">
+  <div class="search-box">
+    <span class="search-icon">🔍</span>
+    <input id="search-input" type="text" placeholder="Search anything..." autocomplete="off"/>
+    <button class="clear-btn" id="clear-btn" onclick="clearSearch()">✕</button>
+  </div>
+  <div id="suggestions"></div>
+</div>
+
+<div id="trending-section">
+  <h3>🔥 Trending Searches</h3>
+  <div class="trending-tags" id="trending-tags"></div>
+</div>
+
+<div id="status"></div>
+
+<script>
+  let debounceTimer;
+  let lastQuery = '';
+
+  const input = document.getElementById('search-input');
+  const suggestionsBox = document.getElementById('suggestions');
+  const clearBtn = document.getElementById('clear-btn');
+  const statusEl = document.getElementById('status');
+
+  // Load trending searches on page load
+  fetch('/api/trending')
+    .then(r => r.json())
+    .then(data => {
+      const container = document.getElementById('trending-tags');
+      (data.trending || []).forEach(term => {
+        const tag = document.createElement('div');
+        tag.className = 'tag';
+        tag.textContent = '🔍 ' + term;
+        tag.onclick = () => { input.value = term; fetchSuggestions(term); };
+        container.appendChild(tag);
+      });
+    });
+
+  // Listen for keystrokes
+  input.addEventListener('input', () => {
+    const q = input.value.trim();
+    clearBtn.style.display = q ? 'block' : 'none';
+
+    if (!q) { hideSuggestions(); return; }
+
+    // Debounce — wait 150ms after user stops typing before making API call
+    // Prevents firing a request on every single keystroke
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => fetchSuggestions(q), 150);
+  });
+
+  // Hide suggestions when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.search-wrapper')) hideSuggestions();
+  });
+
+  async function fetchSuggestions(q) {
+    if (q === lastQuery) return;
+    lastQuery = q;
+
+    const start = performance.now();
+    const res = await fetch(`/api/suggest?q=${encodeURIComponent(q)}`);
+    const data = await res.json();
+    const ms = (performance.now() - start).toFixed(1);
+
+    statusEl.textContent = `Source: ${data.source} · ${data.suggestions.length} results · ${ms}ms`;
+
+    if (!data.suggestions.length) { hideSuggestions(); return; }
+
+    const sourceClass = {
+      trie: 'source-trie',
+      cache: 'source-cache',
+      db: 'source-db'
+    }[data.source] || '';
+
+    const sourceLabel = {
+      trie: 'Trie',
+      cache: 'Cache',
+      db: 'DB'
+    }[data.source] || '';
+
+    suggestionsBox.innerHTML = data.suggestions.map(term => {
+      // Bold the matching prefix part
+      const lowerTerm = term.toLowerCase();
+      const lowerQ = q.toLowerCase();
+      const matchEnd = lowerTerm.indexOf(lowerQ) + lowerQ.length;
+      const boldPart = term.slice(0, matchEnd);
+      const restPart = term.slice(matchEnd);
+
+      return `
+        <div class="suggestion-item" onclick="selectSuggestion('${term.replace(/'/g, "\\'")}')">
+          <span class="icon">🔍</span>
+          <span class="term"><span class="match">${boldPart}</span>${restPart}</span>
+          <span class="source-badge ${sourceClass}">${sourceLabel}</span>
+        </div>`;
+    }).join('');
+
+    suggestionsBox.style.display = 'block';
+  }
+
+  function selectSuggestion(term) {
+    input.value = term;
+    hideSuggestions();
+    // Record this as a completed search
+    fetch('/api/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ term })
+    });
+    statusEl.textContent = `Searched: "${term}"`;
+  }
+
+  function clearSearch() {
+    input.value = '';
+    clearBtn.style.display = 'none';
+    hideSuggestions();
+    lastQuery = '';
+    statusEl.textContent = '';
+  }
+
+  function hideSuggestions() {
+    suggestionsBox.style.display = 'none';
+    suggestionsBox.innerHTML = '';
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+{
+  "name": "search-autocomplete",
+  "version": "1.0.0",
+  "description": "Low-latency search autocomplete using prefix indexing, Redis Sorted Sets, and PostgreSQL",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.0.0",
+    "express": "^4.18.0",
+    "pg": "^8.11.0",
+    "redis": "^4.6.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.0"
+  }
+}
